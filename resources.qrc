@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/Icons">
+        <file>pause.ico</file>
+        <file>play.ico</file>
+        <file>playerSplash.png</file>
+        <file>youtube.ico</file>
+    </qresource>
+</RCC>
