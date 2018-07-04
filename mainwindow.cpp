@@ -27,36 +27,32 @@ void MainWindow::setVerticalLayout()
     m_videoWidget->show();
 }
 
-QString MainWindow::getMediaTitle(const QString &path)
+void MainWindow::setGUIColorScheme()
 {
-    int cnt = 0;
-    int pos = path.size() - 1;
-    while (path[pos] != '/')
-        --pos, ++cnt;
-    return path.mid(pos + 1, cnt);
+    QFile styleSheetFile(":/Files/style.qss");
+    styleSheetFile.open(QFile::ReadOnly);
+    QString style = QLatin1String(styleSheetFile.readAll());
+    qApp->setStyleSheet(style);
+
+    m_volumeLabel->setStyleSheet("color: white; padding: 6px;");
 }
 
-void MainWindow::searchVideo(const QString &keyword)
+QString MainWindow::getMediaTitle(const QString &path)
 {
-    QString youtubeURL = "https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&q=" +
-                         keyword +
-                         "%203%27%203&key=" +
-                         apiKEY +
-                         "&videoEmbeddable=true&maxResults=1";
-
-    QUrl realURL(youtubeURL);
-    if (m_networkManager == nullptr) {
-        m_networkManager = new QNetworkAccessManager(this);
-        connect(m_networkManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(processReply(QNetworkReply*)));
+    int counter = 0;
+    int position = path.size() - 1;
+    while (path[position] != '/') {
+        --position;
+        ++counter;
     }
-
-    QNetworkRequest networkRequest(realURL);
-    m_networkReply = m_networkManager->get(networkRequest);
+    return path.mid(position + 1, counter);
 }
 
 void MainWindow::openFileFromDisk()
 {
-    QString path = QFileDialog::getOpenFileName(this, "Open a video file!", QDir::homePath(), "Video files (*.mp4 *.avi *.wmv, *.mkv)");
+    QString path = QFileDialog::getOpenFileName(this, "Open a video file!",
+                                                QDir::homePath(),
+                                                "Video files (*.mp4 *.avi *.wmv, *.mkv)");
     if (path != "") {
         m_currentMediaTitle = getMediaTitle(path);
         this->setWindowTitle(m_currentMediaTitle + " - zPlayer [PLAYING]");
@@ -100,17 +96,97 @@ void MainWindow::searchOnYouTube()
     }
 }
 
-void MainWindow::processReply(QNetworkReply *reply)
+void MainWindow::searchVideo(const QString &keyword)
+{
+    QString youtubeURL = "https://www.googleapis.com/youtube/v3/search?part=snippet,id&order=viewCount&type=video&q=" +
+                         keyword +
+                         "&key=" +
+                         apiKEY +
+                         "&videoEmbeddable=true&maxResults=20";
+
+    QUrl realURL(youtubeURL);
+    QNetworkRequest networkRequest(realURL);
+    m_networkYoutubeReply = m_networkYoutubeManager->get(networkRequest);
+}
+
+void MainWindow::processYoutubeReply(QNetworkReply *reply)
 {
     if (reply->error() == QNetworkReply::NoError) {
-        QByteArray message = reply->readAll();
+        QRegExp regex("\\\"videoId\\\": \\\"([^\\\"]*)", Qt::CaseInsensitive, QRegExp::RegExp2);
+        QRegExp regexTitle("\\\"title\\\": \\\"([^\\\"]*)", Qt::CaseInsensitive, QRegExp::RegExp2);
+        QString realMediaLink = "";
+        QByteArray responseData = reply->readAll();
+        QJsonDocument jsonDocument = QJsonDocument::fromJson(responseData);
+        QString jsonString = jsonDocument.toJson();
 
-        QJsonDocument jsonResponse = QJsonDocument::fromJson(message);
-        QJsonObject results = jsonResponse.object();
-        /// TO BE WRITTEN
+        if (regex.indexIn(responseData) == -1 || regexTitle.indexIn(responseData) == -1) {
+            QMessageBox::critical(this, "Error!", "No such video found, try another keyword.");
+        }
+        else {
+            QString result, MP4MediaLink;
+            QString title;
+            QUrl MP4MediaURL;
+            QNetworkRequest networkRequest;
+            m_isPlayingFromYoutube = false;
+
+            int currentPosition = regex.indexIn(jsonString, 0);
+            int currentPositionTitle = regexTitle.indexIn(jsonString, 0);
+
+            m_requestsList.clear();
+            while (currentPosition != -1) {
+                currentPosition += regex.matchedLength();
+                currentPositionTitle += regexTitle.matchedLength();
+
+                result = regex.cap(1);
+                realMediaLink = "https://www.youtube.com/watch?v=" + result;
+                title = "[YouTube] " + regexTitle.cap(1);
+                MP4MediaLink = "http://you-link.herokuapp.com/?url=" + realMediaLink;
+                MP4MediaURL = QUrl(MP4MediaLink);
+
+                currentPosition = regex.indexIn(jsonString, currentPosition);
+                currentPositionTitle = regexTitle.indexIn(jsonString, currentPositionTitle);
+
+                networkRequest = QNetworkRequest(MP4MediaURL);
+                m_requestsList.push_back({networkRequest, title});
+            }
+
+            QPair <QNetworkRequest, QString> firstRequest = m_requestsList.takeFirst();
+            m_currentMediaTitle = firstRequest.second;
+            m_networkMP4Reply = m_networkMP4Manager->get(firstRequest.first);
+        }
     }
     else {
         QMessageBox::critical(this, "Error!", QString(reply->errorString()));
+    }
+}
+
+void MainWindow::processMP4Reply(QNetworkReply *reply)
+{
+    if (reply->error() == QNetworkReply::NoError) {
+        QRegExp regex("\"url\": \"([^\"]*)", Qt::CaseInsensitive, QRegExp::RegExp2);
+        QString realMP4Link = "";
+        QByteArray responseData = reply->readAll();
+        QJsonDocument jsonDocument = QJsonDocument::fromJson(responseData);
+        QString jsonString = jsonDocument.toJson();
+
+        qDebug() << m_currentMediaTitle;
+        if (regex.indexIn(jsonString) != -1) {
+            realMP4Link = regex.cap(1);
+            QUrl realMP4URL(realMP4Link);
+            m_mediaPlayer->setMedia(realMP4URL);
+            m_mediaPlayer->setVolume(50);
+            m_mediaPlayer->play();
+            qDebug() << realMP4Link;
+            this->setWindowTitle(m_currentMediaTitle + " - zPlayer [PLAYING]");
+            m_isPlayingFromYoutube = true;
+        }
+        else {
+            if (!m_requestsList.empty()) {
+                QPair <QNetworkRequest, QString> currentRequest = m_requestsList.takeFirst();
+                m_currentMediaTitle = currentRequest.second;
+                m_networkMP4Reply = m_networkMP4Manager->get(currentRequest.first);
+            }
+        }
     }
 }
 
@@ -128,12 +204,96 @@ bool MainWindow::isConnectedToInternet()
     return reply->bytesAvailable();
 }
 
+void MainWindow::setMediaPlayer()
+{
+    m_mediaPlayer->setVideoOutput(m_videoWidget);
+    m_mediaPlayer->setAudioRole(QAudio::VideoRole);
+}
+
+void MainWindow::setWindowProperties()
+{
+    this->setWindowIcon(QIcon(":/Icons/playBlack.ico"));
+}
+
+void MainWindow::connectSignals()
+{
+    connect(m_openButton, SIGNAL(clicked(bool)), this, SLOT(openFileFromDisk()));
+    connect(m_pauseButton, SIGNAL(clicked(bool)), this, SLOT(pauseVideo()));
+    connect(m_playButton, SIGNAL(clicked(bool)), this, SLOT(playVideo()));
+    connect(m_youtubeSearchButton, SIGNAL(clicked(bool)), this, SLOT(searchOnYouTube()));
+    connect(m_volumeSlider, SIGNAL(valueChanged(int)), m_mediaPlayer, SLOT(setVolume(int)));
+    connect(m_networkYoutubeManager, SIGNAL(finished(QNetworkReply*)), this, SLOT(processYoutubeReply(QNetworkReply*)));
+    connect(m_networkMP4Manager, SIGNAL(finished(QNetworkReply*)), this, SLOT(processMP4Reply(QNetworkReply*)));
+}
+
+void MainWindow::fullscreenToggle()
+{
+    if (this->isFullScreen())
+        this->showNormal();
+    else
+        this->showFullScreen();
+}
+
+void MainWindow::playingStateToggle()
+{
+    if (m_mediaPlayer->state() == QMediaPlayer::State::PlayingState) {
+        m_mediaPlayer->pause();
+        this->setWindowTitle(m_currentMediaTitle + " - zPlayer [PAUSED]");
+    }
+    else {
+        m_mediaPlayer->play();
+        this->setWindowTitle(m_currentMediaTitle + " - zPlayer [PLAYING]");
+    }
+}
+
+void MainWindow::decreaseVolume()
+{
+    int volume = m_volumeSlider->value();
+    m_volumeSlider->setValue(qMax(volume - 5, 0));
+}
+
+void MainWindow::increaseVolume()
+{
+    int volume = m_volumeSlider->value();
+    m_volumeSlider->setValue(qMin(volume + 5, 100));
+}
+
+void MainWindow::keyPressEvent(QKeyEvent *event)
+{
+    switch (event->key()) {
+        case Qt::Key::Key_F: fullscreenToggle(); break;
+        case Qt::Key::Key_Space: playingStateToggle(); break;
+        case Qt::Key::Key_Down: decreaseVolume(); break;
+        case Qt::Key::Key_Up: increaseVolume(); break;
+        case Qt::Key::Key_O: openFileFromDisk(); break;
+        case Qt::Key::Key_Y: searchOnYouTube(); break;
+        case Qt::Key::Key_Escape: this->showNormal(); break;
+    }
+}
+
+void MainWindow::setButtonsHeight()
+{
+    m_openButton->setFixedHeight(m_pauseButton->height());
+    m_youtubeSearchButton->setFixedHeight(m_pauseButton->height());
+    m_playButton->setFixedHeight(m_pauseButton->height());
+    m_pauseButton->setFixedHeight(m_openButton->height());
+}
+
+void MainWindow::cancelFocusOnWidgets()
+{
+    m_openButton->setFocusPolicy(Qt::FocusPolicy::NoFocus);
+    m_pauseButton->setFocusPolicy(Qt::FocusPolicy::NoFocus);
+    m_playButton->setFocusPolicy(Qt::FocusPolicy::NoFocus);
+    m_youtubeSearchButton->setFocusPolicy(Qt::FocusPolicy::NoFocus);
+    m_volumeSlider->setFocusPolicy(Qt::FocusPolicy::NoFocus);
+}
+
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow {parent},
     ui {new Ui::MainWindow},
     m_vLayout {new QVBoxLayout(this)},
     m_hLayout {new QHBoxLayout(this)},
-    m_openButton {new QPushButton("Open file", this)},
+    m_openButton {new QPushButton("Open local file", this)},
     m_playButton {new QPushButton(QIcon(":/Icons/play.ico"), "", this)},
     m_pauseButton {new QPushButton(QIcon(":/Icons/pause.ico"), "", this)},
     m_youtubeSearchButton {new QPushButton("Search on YouTube!", this)},
@@ -142,23 +302,24 @@ MainWindow::MainWindow(QWidget *parent) :
     m_mediaPlayer {new QMediaPlayer(this)},
     m_videoWidget {new QVideoWidget(this)},
     m_currentMediaTitle {""},
-    m_networkManager {nullptr},
-    m_networkReply {nullptr}
+    m_networkYoutubeManager {new QNetworkAccessManager(this)},
+    m_networkMP4Manager {new QNetworkAccessManager(this)},
+    m_networkYoutubeReply {nullptr},
+    m_networkMP4Reply {nullptr}
 {
     ui->setupUi(this);
 
     setSliderProperties();
     setHorizontalLayout();
     setVerticalLayout();
-    m_mediaPlayer->setVideoOutput(m_videoWidget);
-    m_mediaPlayer->setAudioRole(QAudio::VideoRole);
-    this->setWindowIcon(QIcon(":/Icons/play.ico"));
+    setWindowProperties();
 
-    connect(m_openButton, SIGNAL(clicked(bool)), this, SLOT(openFileFromDisk()));
-    connect(m_pauseButton, SIGNAL(clicked(bool)), this, SLOT(pauseVideo()));
-    connect(m_playButton, SIGNAL(clicked(bool)), this, SLOT(playVideo()));
-    connect(m_youtubeSearchButton, SIGNAL(clicked(bool)), this, SLOT(searchOnYouTube()));
-    connect(m_volumeSlider, SIGNAL(valueChanged(int)), m_mediaPlayer, SLOT(setVolume(int)));
+    setGUIColorScheme();
+    setButtonsHeight();
+    cancelFocusOnWidgets();
+
+    setMediaPlayer();
+    connectSignals();
 }
 
 MainWindow::~MainWindow()

@@ -10,12 +10,18 @@
 #include <QVideoWidget>
 #include <QSlider>
 #include <QFileDialog>
+#include <QFile>
 #include <QDir>
 #include <QUrl>
 #include <QString>
 #include <QtNetwork>
 #include <QMessageBox>
 #include <QInputDialog>
+#include <QHash>
+#include <QDebug>
+#include <QKeyEvent>
+#include <QList>
+#include <QPair>
 
 namespace Ui {
 class MainWindow;
@@ -32,22 +38,37 @@ public:
     void setSliderProperties();
     void setHorizontalLayout();
     void setVerticalLayout();
-    QString getMediaTitle(const QString& path);
-    void searchVideo(const QString& keyword);
+    void setGUIColorScheme();
 
+    QString getMediaTitle(const QString& path);
+
+    void searchVideo(const QString& keyword);
     void playMedia(QString path);
+    void setMediaPlayer();
+    void setWindowProperties();
+    void setButtonsHeight();
+    void connectSignals();
+    void fullscreenToggle();
+    void playingStateToggle();
+    void cancelFocusOnWidgets();
+    void decreaseVolume();
+    void increaseVolume();
+
+protected:
+    virtual void keyPressEvent(QKeyEvent *event);
 
 private slots:
     void openFileFromDisk();
     void playVideo();
     void pauseVideo();
     void searchOnYouTube();
-    void processReply(QNetworkReply *reply);
+    void processYoutubeReply(QNetworkReply *reply);
+    void processMP4Reply(QNetworkReply *reply);
 
 private:
     bool isConnectedToInternet();
 
-    const QString apiKEY = "nope";
+    const QString apiKEY = "AIzaSyBMOhGHwcIJLc4PBssnXIZK5qeoBUGawhU";
     Ui::MainWindow *ui;
     QVBoxLayout *m_vLayout;
     QHBoxLayout *m_hLayout;
@@ -63,8 +84,14 @@ private:
     QMediaPlayer *m_mediaPlayer;
     QVideoWidget *m_videoWidget;
     QString m_currentMediaTitle;
-    QNetworkAccessManager *m_networkManager;
-    QNetworkReply *m_networkReply;
+
+    QNetworkAccessManager *m_networkYoutubeManager;
+    QNetworkAccessManager *m_networkMP4Manager;
+    QNetworkReply *m_networkYoutubeReply;
+    QNetworkReply *m_networkMP4Reply;
+    bool m_isPlayingFromYoutube;
+
+    QList <QPair <QNetworkRequest, QString>> m_requestsList;
 };
 
 #endif // MAINWINDOW_H

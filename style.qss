@@ -1,0 +1,27 @@
+QMainWindow {
+	background-color: black;
+}
+
+QPushButton {
+	background-color: #0F5257;
+	border-width: 2px;
+	border-radius: 3px;
+	border-color: beige;
+    color: white;
+	padding: 6px;
+}
+
+QPushButton:pressed {
+	background-color: #083E42;
+	border-width: 2px;
+	border-radius: 3px;
+	border-color: beige;
+    color: white;
+	padding: 6px;
+}
+
+QSlider::handle:horizontal {
+	background-color: #0F5257;
+	border-width: 2px;
+	border-radius: 2px;
+}
