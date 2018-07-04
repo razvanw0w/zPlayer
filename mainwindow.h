@@ -68,7 +68,7 @@ private slots:
 private:
     bool isConnectedToInternet();
 
-    const QString apiKEY = "AIzaSyBMOhGHwcIJLc4PBssnXIZK5qeoBUGawhU";
+    const QString apiKEY = "nope";
     Ui::MainWindow *ui;
     QVBoxLayout *m_vLayout;
     QHBoxLayout *m_hLayout;
